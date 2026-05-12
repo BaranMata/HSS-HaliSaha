@@ -28,3 +28,6 @@ POST /api/matches/create: Haritada (Radarda) yeni halı saha ilanı oluşturma.
 GET /api/matches/nearby: Radardaki aktif ilanları getirme.
 
 POST /api/media/like & comment: Sosyal etkileşim motorları.
+
+
+//  ------->  https://hss-halisaha.onrender.com <------------------
