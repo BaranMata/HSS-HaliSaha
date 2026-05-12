@@ -12,10 +12,11 @@ Bu proje, HSS mobil uygulamasının veri yönetimini, medya yüklemelerini ve ha
 1. Proje dizinine gidin ve gerekli paketleri indirin:
    ```bash
    npm install
-
+//
    npm run dev
 # veya
 node index.js
+ile çalıştır
 
 📡 API Uç Noktaları (Özet)
 POST /api/media/upload: Video yükleme ve Firestore'a kayıt.
