@@ -43,9 +43,6 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
-// MVP İçin Geçici Video Veritabanı
-let videoVeritabani = []; 
-
 // ==========================================
 // --- API UÇ NOKTALARI (ENDPOINTS) ---
 // ==========================================
@@ -68,11 +65,16 @@ app.post('/api/auth/register', async (req, res) => {
     }
 });
 
-// 2. İlan Oluşturma (Create Match)
+// 2. İlan Oluşturma (Create Match) - GÜNCELLENDİ (matchTime Eklendi)
 app.post('/api/matches/create', async (req, res) => {
     try {
-        const { organizerId, latitude, longitude, requiredPosition } = req.body;
-        if (!organizerId || !latitude || !longitude || !requiredPosition) return res.status(400).send({ error: "Eksik bilgi!" });
+        // req.body içinden matchTime verisini de çekiyoruz
+        const { organizerId, latitude, longitude, requiredPosition, matchTime } = req.body;
+        
+        // Eksik bilgi kontrolüne matchTime'ı da dahil ettik
+        if (!organizerId || !latitude || !longitude || !requiredPosition || !matchTime) {
+            return res.status(400).send({ error: "Eksik bilgi! Lütfen tüm alanları doldurun." });
+        }
 
         const newMatchRef = db.collection('MATCH').doc();
         await newMatchRef.set({
@@ -81,6 +83,7 @@ app.post('/api/matches/create', async (req, res) => {
             Latitude: latitude,
             Longitude: longitude,
             Required_Position: requiredPosition,
+            matchTime: matchTime, // SAAT BİLGİSİ FİRESTORE'A YAZILIYOR
             Status: "Aktif",
             CreatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
@@ -153,8 +156,7 @@ app.post('/api/users/rate', async (req, res) => {
   }
 });
 
-// 7. VİDEO YÜKLEME UCU (Buluta/Sunucuya Kayıt)
-// VİDEO YÜKLEME UCU (Firestore Bağlantılı)
+// 7. VİDEO YÜKLEME UCU (Firestore Bağlantılı)
 app.post('/api/media/upload', upload.single('video'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'Video bulunamadı.' });
@@ -175,7 +177,7 @@ app.post('/api/media/upload', upload.single('video'), async (req, res) => {
             videoUrl: videoUrl,
             likes: 0,
             comments: 0,
-            UploadedAt: admin.firestore.FieldValue.serverTimestamp() // Sıralama için kritik!
+            UploadedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
         // --- FİREBASE'E KAYIT ---
@@ -190,8 +192,7 @@ app.post('/api/media/upload', upload.single('video'), async (req, res) => {
     }
 });
 
-// 8. REELS AKIŞI UCU (Mobil Uygulama Buradan Çekecek)
-// REELS AKIŞI UCU (Firestore'dan Canlı Veri)
+// 8. REELS AKIŞI UCU (Firestore'dan Canlı Veri)
 app.get('/api/media/feed', async (req, res) => {
     try {
         // MEDIA koleksiyonundan en yeni 10 videoyu çek
@@ -205,7 +206,6 @@ app.get('/api/media/feed', async (req, res) => {
             videolar.push(doc.data());
         });
 
-        // Mobil uygulamanın beklediği "videos" anahtarıyla gönderiyoruz
         res.status(200).json({ videos: videolar });
 
     } catch (error) {
@@ -224,7 +224,6 @@ app.post('/api/media/like', async (req, res) => {
         const { videoId } = req.body;
         if (!videoId) return res.status(400).send({ error: "Video ID gerekli!" });
 
-        // Firestore'daki 'likes' sayısını 1 artır (Aynı anda bin kişi beğense bile çökmez)
         await db.collection('MEDIA').doc(videoId).update({
             likes: admin.firestore.FieldValue.increment(1)
         });
@@ -241,14 +240,12 @@ app.post('/api/media/comment', async (req, res) => {
         const { videoId, username, text } = req.body;
         if (!videoId || !text) return res.status(400).send({ error: "Eksik veri gönderildi!" });
 
-        // Yorumu videonun altındaki 'COMMENTS' klasörüne kaydet
         await db.collection('MEDIA').doc(videoId).collection('COMMENTS').add({
             username: username || "@oyuncu",
             text: text,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // Videonun ana bilgisindeki 'comments' sayısını 1 artır
         await db.collection('MEDIA').doc(videoId).update({
             comments: admin.firestore.FieldValue.increment(1)
         });
@@ -264,7 +261,6 @@ app.post('/api/media/comment', async (req, res) => {
 app.get('/api/media/comments/:videoId', async (req, res) => {
     try {
         const { videoId } = req.params;
-        // İlgili videonun yorumlarını eskiden yeniye doğru sıralayarak çek
         const snapshot = await db.collection('MEDIA').doc(videoId).collection('COMMENTS').orderBy('createdAt', 'asc').get();
         
         const comments = [];
