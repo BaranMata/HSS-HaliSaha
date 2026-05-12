@@ -31,3 +31,13 @@ POST /api/media/like & comment: Sosyal etkileşim motorları.
 
 
 //  ------->  https://hss-halisaha.onrender.com <------------------
+
+
+
+KALAN İŞLER :
+
+Kimlik Doğrulama (Authentication): Şu an her şeyi geçici olarak yapıyoruz. Firebase Auth kurularak gerçek Kayıt Ol / Giriş Yap ekranlarının bağlanması.
+
+Canlı Mesajlaşma: Maç ilanlarına başvuran oyuncular ile kaptanların gerçek zamanlı (Socket.io) haberleşebileceği mesajlaşma altyapısı.
+
+Profil ve Yetenek Ekranı: Kullanıcıların kendi yükledikleri videoları, yetenek puanlarını (Skill Rating) ve başvurdukları maçları görebileceği kişisel profil sayfası.
