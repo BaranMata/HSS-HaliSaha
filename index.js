@@ -154,36 +154,128 @@ app.post('/api/users/rate', async (req, res) => {
 });
 
 // 7. VİDEO YÜKLEME UCU (Buluta/Sunucuya Kayıt)
-app.post('/api/media/upload', upload.single('video'), (req, res) => {
+// VİDEO YÜKLEME UCU (Firestore Bağlantılı)
+app.post('/api/media/upload', upload.single('video'), async (req, res) => {
     if (!req.file) {
-        return res.status(400).json({ error: 'Video bulunamadı veya boyutu çok büyük.' });
+        return res.status(400).json({ error: 'Video bulunamadı.' });
     }
 
-    const username = req.body.username || '@oyuncu';
-    const description = req.body.description || 'Sahalara dönüş! ⚽';
-    
-    const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    try {
+        const username = req.body.username || '@oyuncu';
+        const description = req.body.description || 'Sahalara dönüş! ⚽';
+        
+        // Yüklenen videonun tam URL'si
+        const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
 
-    const yeniVideo = {
-        id: Date.now().toString(),
-        username: username,
-        description: description,
-        videoUrl: videoUrl,
-        likes: 0,
-        comments: 0
-    };
+        const yeniVideoId = Date.now().toString();
+        const yeniVideoVerisi = {
+            id: yeniVideoId,
+            username: username,
+            description: description,
+            videoUrl: videoUrl,
+            likes: 0,
+            comments: 0,
+            UploadedAt: admin.firestore.FieldValue.serverTimestamp() // Sıralama için kritik!
+        };
 
-    videoVeritabani.unshift(yeniVideo); 
-    console.log("Yeni video yüklendi:", videoUrl);
-    res.status(200).json({ message: 'Efsane! Video başarıyla yüklendi.', video: yeniVideo });
+        // --- FİREBASE'E KAYIT ---
+        await db.collection('MEDIA').doc(yeniVideoId).set(yeniVideoVerisi);
+
+        console.log("Firestore'a yeni video mühürlendi:", videoUrl);
+        res.status(200).json({ message: 'Efsane! Video başarıyla yüklendi.', video: yeniVideoVerisi });
+
+    } catch (error) {
+        console.error("Firestore Kayıt Hatası:", error);
+        res.status(500).json({ error: "Video yüklendi ama veritabanına kaydedilemedi." });
+    }
 });
 
 // 8. REELS AKIŞI UCU (Mobil Uygulama Buradan Çekecek)
-app.get('/api/media/feed', (req, res) => {
-    // Sadece bu uç nokta çalışacak, çakışma bitti!
-    res.status(200).json({ videos: videoVeritabani });
+// REELS AKIŞI UCU (Firestore'dan Canlı Veri)
+app.get('/api/media/feed', async (req, res) => {
+    try {
+        // MEDIA koleksiyonundan en yeni 10 videoyu çek
+        const snapshot = await db.collection('MEDIA')
+            .orderBy('UploadedAt', 'desc')
+            .limit(10)
+            .get();
+
+        const videolar = [];
+        snapshot.forEach(doc => {
+            videolar.push(doc.data());
+        });
+
+        // Mobil uygulamanın beklediği "videos" anahtarıyla gönderiyoruz
+        res.status(200).json({ videos: videolar });
+
+    } catch (error) {
+        console.error("Firestore Veri Çekme Hatası:", error);
+        res.status(500).json({ error: "Akış getirilirken bir hata oluştu." });
+    }
 });
 
+// ==========================================
+// --- SOSYAL ETKİLEŞİM API'LERİ ---
+// ==========================================
+
+// 9. Videoyu Beğen (Like)
+app.post('/api/media/like', async (req, res) => {
+    try {
+        const { videoId } = req.body;
+        if (!videoId) return res.status(400).send({ error: "Video ID gerekli!" });
+
+        // Firestore'daki 'likes' sayısını 1 artır (Aynı anda bin kişi beğense bile çökmez)
+        await db.collection('MEDIA').doc(videoId).update({
+            likes: admin.firestore.FieldValue.increment(1)
+        });
+        res.status(200).send({ message: "Beğeni kaydedildi!" });
+    } catch (error) {
+        console.error("Beğeni hatası:", error);
+        res.status(500).send({ error: "Beğeni işlemi başarısız." });
+    }
+});
+
+// 10. Yorum Yap (Comment)
+app.post('/api/media/comment', async (req, res) => {
+    try {
+        const { videoId, username, text } = req.body;
+        if (!videoId || !text) return res.status(400).send({ error: "Eksik veri gönderildi!" });
+
+        // Yorumu videonun altındaki 'COMMENTS' klasörüne kaydet
+        await db.collection('MEDIA').doc(videoId).collection('COMMENTS').add({
+            username: username || "@oyuncu",
+            text: text,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Videonun ana bilgisindeki 'comments' sayısını 1 artır
+        await db.collection('MEDIA').doc(videoId).update({
+            comments: admin.firestore.FieldValue.increment(1)
+        });
+
+        res.status(201).send({ message: "Yorum eklendi!" });
+    } catch (error) {
+        console.error("Yorum hatası:", error);
+        res.status(500).send({ error: "Yorum kaydedilemedi." });
+    }
+});
+
+// 11. Yorumları Getir
+app.get('/api/media/comments/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        // İlgili videonun yorumlarını eskiden yeniye doğru sıralayarak çek
+        const snapshot = await db.collection('MEDIA').doc(videoId).collection('COMMENTS').orderBy('createdAt', 'asc').get();
+        
+        const comments = [];
+        snapshot.forEach(doc => comments.push(doc.data()));
+        
+        res.status(200).send({ comments: comments });
+    } catch (error) {
+        console.error("Yorum çekme hatası:", error);
+        res.status(500).send({ error: "Yorumlar getirilemedi." });
+    }
+});
 
 // ==========================================
 // --- SUNUCU BAŞLATMA (HER ZAMAN EN ALTTA!) ---
