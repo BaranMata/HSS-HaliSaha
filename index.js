@@ -269,7 +269,6 @@ app.post('/api/media/upload', upload.single('video'), (req, res) => {
 // REELS AKIŞI UCU (GET /api/media/feed)
 // ==========================================
 app.get('/api/media/feed', (req, res) => {
-    // Mobil uygulama bu adrese istek attığında tüm videoları ona yolluyoruz
     res.status(200).json({ videos: videoVeritabani });
 });
 
