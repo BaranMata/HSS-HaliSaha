@@ -1,6 +1,9 @@
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const serviceAccount = require('./serviceAccountKey.json');
 
@@ -198,3 +201,76 @@ app.get('/api/media/feed', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`HSS Backend Sunucusu http://localhost:${PORT} adresinde çalışıyor!`);
 });
+
+
+
+
+
+// --- 1. STATİK DOSYA SUNUCUSU (ÇOK ÖNEMLİ!) ---
+// Mobil uygulamanın videolara URL üzerinden erişebilmesi için 'uploads' klasörünü dışa açıyoruz.
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- 2. UPLOADS KLASÖRÜ KONTROLÜ ---
+// Eğer projede 'uploads' klasörü yoksa otomatik oluşturur
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// --- 3. MULTER (KARGO MEMURU) AYARLARI ---
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, uploadDir); // Videolar buraya kaydedilecek
+    },
+    filename: function (req, file, cb) {
+        // Dosya isimleri çakışmasın diye benzersiz bir isim üretiyoruz
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'hss-video-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage: storage });
+
+// --- 4. GEÇİCİ VERİTABANI (MVP İÇİN) ---
+// İleride burayı MongoDB veya PostgreSQL ile değiştireceğiz.
+let videoVeritabani = [];
+
+// ==========================================
+// VİDEO YÜKLEME UCU (POST /api/media/upload)
+// ==========================================
+app.post('/api/media/upload', upload.single('video'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'Video bulunamadı veya boyutu çok büyük.' });
+    }
+
+    const username = req.body.username || '@oyuncu';
+    const description = req.body.description || 'Sahalara dönüş! ⚽';
+    
+    // Yüklenen videonun dışarıdan erişilebilir tam URL'sini oluşturuyoruz
+    // Örn: https://hss-halisaha.onrender.com/uploads/hss-video-12345.mp4
+    const videoUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+
+    const yeniVideo = {
+        id: Date.now().toString(),
+        username: username,
+        description: description,
+        videoUrl: videoUrl,
+        likes: 0,
+        comments: 0
+    };
+
+    // Yeni videoyu veritabanının EN BAŞINA ekle (en yeni en üstte çıksın diye)
+    videoVeritabani.unshift(yeniVideo); 
+
+    console.log("Yeni video yüklendi:", videoUrl);
+    res.status(200).json({ message: 'Efsane! Video başarıyla yüklendi.', video: yeniVideo });
+});
+
+// ==========================================
+// REELS AKIŞI UCU (GET /api/media/feed)
+// ==========================================
+app.get('/api/media/feed', (req, res) => {
+    // Mobil uygulama bu adrese istek attığında tüm videoları ona yolluyoruz
+    res.status(200).json({ videos: videoVeritabani });
+});
+
+// ... Diğer mevcut kodların (app.listen vb.) ...
