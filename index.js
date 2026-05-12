@@ -272,4 +272,4 @@ app.get('/api/media/feed', (req, res) => {
     res.status(200).json({ videos: videoVeritabani });
 });
 
-// ... Diğer mevcut kodların (app.listen vb.) ...
+// ... Diğer mevcut kodların (app.listen vb.) ...s
