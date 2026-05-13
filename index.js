@@ -427,6 +427,53 @@ app.get('/api/media/feed', async (req, res) => {
     }
 });
 
+// 8b. Kullanıcının Kendi Videoları
+app.get('/api/media/user/:username', async (req, res) => {
+    try {
+        const { username } = req.params;
+        const snapshot = await db.collection('MEDIA')
+            .where('username', '==', username)
+            .orderBy('UploadedAt', 'desc')
+            .get();
+
+        const videolar = [];
+        snapshot.forEach(doc => videolar.push(doc.data()));
+        res.status(200).json({ videos: videolar });
+    } catch (error) {
+        console.error("Kullanıcı videoları hatası:", error);
+        res.status(500).json({ error: "Videolar getirilemedi." });
+    }
+});
+
+// 8c. Video Sil
+app.delete('/api/media/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const videoDoc = await db.collection('MEDIA').doc(videoId).get();
+        
+        if (!videoDoc.exists) {
+            return res.status(404).json({ error: "Video bulunamadı." });
+        }
+
+        // Firebase Storage'dan da sil (eğer varsa)
+        const videoData = videoDoc.data();
+        if (videoData.videoUrl && videoData.videoUrl.includes('storage.googleapis.com')) {
+            try {
+                const fileName = videoData.videoUrl.split('/').pop();
+                await bucket.file(`videos/${fileName}`).delete();
+            } catch (e) {
+                console.warn("Storage silme hatası (önemsiz):", e.message);
+            }
+        }
+
+        await db.collection('MEDIA').doc(videoId).delete();
+        res.status(200).json({ message: "Video silindi!" });
+    } catch (error) {
+        console.error("Video silme hatası:", error);
+        res.status(500).json({ error: "Video silinemedi." });
+    }
+});
+
 // ==========================================
 // --- SOSYAL ETKİLEŞİM API'LERİ ---
 // ==========================================
