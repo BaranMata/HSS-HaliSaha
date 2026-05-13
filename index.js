@@ -14,7 +14,7 @@ admin.initializeApp({
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
-console.log("HSS Veritabanı bağlantısı başarılı!");
+console.log("HSS Veritabanı ve Bulut Depo bağlantısı başarılı!");
 
 const app = express();
 
