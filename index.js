@@ -75,14 +75,30 @@ const verifyToken = async (req, res, next) => {
 // --- API UÇ NOKTALARI (ENDPOINTS) ---
 // ==========================================
 
-// 1. Kullanıcı Kayıt (Register)
+// 1. Kullanıcı Kayıt (Register) - Benzersiz kullanıcı adı kontrolü
 app.post('/api/auth/register', async (req, res) => {
     try {
-        const { uid, fullName, username, position } = req.body;
+        const { uid, email, password, fullName, username, position } = req.body;
         if (!uid || !username) return res.status(400).send({ error: "UID ve Username zorunludur!" });
+
+        // Kullanıcı adı benzersiz mi kontrol et
+        const usernameCheck = await db.collection('USERS').where('Username', '==', username).get();
+        if (!usernameCheck.empty) {
+            return res.status(400).send({ error: "Bu kullanıcı adı zaten alınmış! Başka bir ad deneyin." });
+        }
+
+        // E-posta benzersiz mi kontrol et
+        if (email) {
+            const emailCheck = await db.collection('USERS').where('email', '==', email).get();
+            if (!emailCheck.empty) {
+                return res.status(400).send({ error: "Bu e-posta adresiyle zaten bir hesap var!" });
+            }
+        }
 
         await db.collection('USERS').doc(uid).set({
             UserID: uid,
+            email: email || '',
+            password: password || '',
             fullName: fullName || '',
             Username: username,
             Skill_Rating: 0,
@@ -94,7 +110,33 @@ app.post('/api/auth/register', async (req, res) => {
         });
         res.status(201).send({ message: "Kullanıcı başarıyla oluşturuldu!", uid: uid });
     } catch (error) {
+        console.error("Kayıt hatası:", error);
         res.status(500).send({ error: "Kayıt işlemi sırasında hata oluştu." });
+    }
+});
+
+// 1a. Kullanıcı Giriş (Login)
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (!email || !password) return res.status(400).json({ error: "E-posta ve şifre gerekli!" });
+
+        const snapshot = await db.collection('USERS').where('email', '==', email).get();
+        if (snapshot.empty) {
+            return res.status(404).json({ error: "Bu e-posta adresiyle kayıtlı bir hesap bulunamadı." });
+        }
+
+        const userDoc = snapshot.docs[0];
+        const userData = userDoc.data();
+
+        if (userData.password !== password) {
+            return res.status(401).json({ error: "Şifre hatalı!" });
+        }
+
+        res.status(200).json({ message: "Giriş başarılı!", user: userData });
+    } catch (error) {
+        console.error("Giriş hatası:", error);
+        res.status(500).json({ error: "Giriş işlemi başarısız." });
     }
 });
 
@@ -160,6 +202,18 @@ app.post('/api/matches/create', async (req, res) => {
         res.status(201).send({ message: "İlan oluşturuldu!", matchId: newMatchRef.id });
     } catch (error) {
         res.status(500).send({ error: "İlan oluşturma hatası." });
+    }
+});
+
+// 2b. İlan Sil
+app.delete('/api/matches/:matchId', async (req, res) => {
+    try {
+        const { matchId } = req.params;
+        await db.collection('MATCH').doc(matchId).delete();
+        res.status(200).json({ message: "İlan silindi!" });
+    } catch (error) {
+        console.error("İlan silme hatası:", error);
+        res.status(500).json({ error: "İlan silinemedi." });
     }
 });
 
