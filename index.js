@@ -177,16 +177,20 @@ app.post('/api/users/update', async (req, res) => {
     }
 });
 
-// 2. İlan Oluşturma (Create Match) - GÜNCELLENDİ (matchTime Eklendi)
+// 2. İlan Oluşturma - Çoklu Mevki Sistemi
 app.post('/api/matches/create', async (req, res) => {
     try {
-        // req.body içinden matchTime verisini de çekiyoruz
-        const { organizerId, latitude, longitude, requiredPosition, matchTime } = req.body;
+        const { organizerId, latitude, longitude, positions, matchTime } = req.body;
         
-        // Eksik bilgi kontrolüne matchTime'ı da dahil ettik
-        if (!organizerId || !latitude || !longitude || !requiredPosition || !matchTime) {
+        if (!organizerId || !latitude || !longitude || !positions || !matchTime) {
             return res.status(400).send({ error: "Eksik bilgi! Lütfen tüm alanları doldurun." });
         }
+
+        // positions: [{ name: "Kaleci", needed: 1, filled: 0 }, { name: "Stoper", needed: 2, filled: 0 }]
+        const positionsArray = Array.isArray(positions) ? positions : JSON.parse(positions);
+
+        // Geriye uyumluluk için Required_Position alanını da oluştur
+        const positionNames = positionsArray.map(p => `${p.name}${p.needed > 1 ? ` (${p.needed})` : ''}`).join(', ');
 
         const newMatchRef = db.collection('MATCH').doc();
         await newMatchRef.set({
@@ -194,13 +198,15 @@ app.post('/api/matches/create', async (req, res) => {
             OrganizerID: organizerId,
             Latitude: latitude,
             Longitude: longitude,
-            Required_Position: requiredPosition,
-            matchTime: matchTime, // SAAT BİLGİSİ FİRESTORE'A YAZILIYOR
+            positions: positionsArray,
+            Required_Position: positionNames,
+            matchTime: matchTime,
             Status: "Aktif",
             CreatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         res.status(201).send({ message: "İlan oluşturuldu!", matchId: newMatchRef.id });
     } catch (error) {
+        console.error("İlan oluşturma hatası:", error);
         res.status(500).send({ error: "İlan oluşturma hatası." });
     }
 });
@@ -229,10 +235,10 @@ app.get('/api/matches/nearby', async (req, res) => {
     }
 });
 
-// 4. Maça Başvuru Yap
+// 4. Maça Başvuru Yap - Belirli Mevkiye Başvuru
 app.post('/api/applications/apply', async (req, res) => {
   try {
-    const { matchId, applicantId } = req.body;
+    const { matchId, applicantId, positionName } = req.body;
     if (!matchId || !applicantId) return res.status(400).send({ error: "Eksik veri!" });
 
     const newAppRef = db.collection('APPLICATION').doc();
@@ -240,19 +246,46 @@ app.post('/api/applications/apply', async (req, res) => {
       ApplicationID: newAppRef.id,
       MatchID: matchId,
       ApplicantID: applicantId,
+      PositionName: positionName || 'Belirtilmedi',
       Status: "Beklemede",
       AppliedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // --- SRS 1.2.3: Başvuru yapıldığında otomatik DM kanalı aç ---
-    // İlan sahibini bul
-    const matchDoc = await db.collection('MATCH').doc(matchId).get();
-    if (matchDoc.exists) {
-        const organizerId = matchDoc.data().OrganizerID;
-        // İki kullanıcı arasında tekil bir sohbet odası ID'si oluştur
-        const chatRoomId = [organizerId, applicantId].sort().join('_');
+    // Eğer mevki belirtilmişse, o mevkinin filled sayısını artır
+    if (positionName) {
+        const matchDoc = await db.collection('MATCH').doc(matchId).get();
+        if (matchDoc.exists) {
+            const matchData = matchDoc.data();
+            if (matchData.positions && Array.isArray(matchData.positions)) {
+                const updatedPositions = matchData.positions.map(p => {
+                    if (p.name === positionName && p.filled < p.needed) {
+                        return { ...p, filled: p.filled + 1 };
+                    }
+                    return p;
+                });
 
-        // Sohbet odası zaten yoksa oluştur
+                // Tüm pozisyonlar doldu mu kontrol et
+                const tumDolduMu = updatedPositions.every(p => p.filled >= p.needed);
+                const yeniDurum = tumDolduMu ? 'Tamamlandı' : 'Aktif';
+                const positionNames = updatedPositions
+                    .filter(p => p.filled < p.needed)
+                    .map(p => `${p.name}${p.needed - p.filled > 1 ? ` (${p.needed - p.filled})` : ''}`)
+                    .join(', ') || 'Kadro Tamam';
+
+                await db.collection('MATCH').doc(matchId).update({
+                    positions: updatedPositions,
+                    Required_Position: positionNames,
+                    Status: yeniDurum
+                });
+            }
+        }
+    }
+
+    // DM kanalı aç
+    const matchDoc2 = await db.collection('MATCH').doc(matchId).get();
+    if (matchDoc2.exists) {
+        const organizerId = matchDoc2.data().OrganizerID;
+        const chatRoomId = [organizerId, applicantId].sort().join('_');
         const chatRoomRef = db.collection('CHATROOMS').doc(chatRoomId);
         const chatRoomDoc = await chatRoomRef.get();
         if (!chatRoomDoc.exists) {
@@ -260,7 +293,7 @@ app.post('/api/applications/apply', async (req, res) => {
                 chatRoomId: chatRoomId,
                 participants: [organizerId, applicantId],
                 matchId: matchId,
-                lastMessage: 'Yeni başvuru! Sohbet başlatıldı.',
+                lastMessage: `${positionName || 'Bir mevki'} için başvuru yapıldı!`,
                 lastMessageTime: admin.firestore.FieldValue.serverTimestamp(),
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
