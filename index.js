@@ -9,7 +9,7 @@ const serviceAccount = require('./serviceAccountKey.json');
 
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    storageBucket: 'hssdb-a136a.firebasestorage.app'
+    storageBucket: 'gs://hss-halisaha.firebasestorage.app'
 });
 
 const db = admin.firestore();
